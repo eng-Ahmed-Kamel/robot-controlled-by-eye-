@@ -1,0 +1,81 @@
+import cv2
+import mediapipe as mp
+import serial
+import time
+
+# Establish serial connection with Arduino
+arduino = serial.Serial(port='COM8', baudrate=9600)
+
+# Initialize the camera
+cam = cv2.VideoCapture(0)
+
+# Initialize the face mesh model from MediaPipe
+face_mesh = mp.solutions.face_mesh.FaceMesh(refine_landmarks=True)
+
+# Functions to control the robot's movements
+
+# Function to move the robot forward
+def move_forward():
+    arduino.write(b'F')  # Send 'F' to move forward
+    time.sleep(0.002)
+    arduino.flush()
+
+# Function to turn the robot right
+def turn_right():
+    arduino.write(b'R')  # Send 'R' to turn right
+    time.sleep(0.002)
+    arduino.flush()
+
+# Function to stop the robot
+def stop():
+    arduino.write(b'S')  # Send 'S' to stop
+    time.sleep(0.002)
+    arduino.flush()
+
+# Continuous loop to capture frames from the camera
+while True:
+    _, frame = cam.read()  # Read a frame from the camera
+    frame = cv2.flip(frame, 1)  # Flip the frame horizontally
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # Convert frame to RGB
+    
+    # Process the frame to get face landmarks using MediaPipe
+    output = face_mesh.process(rgb_frame)
+    landmark_points = output.multi_face_landmarks
+    frame_h, frame_w, _ = frame.shape
+    
+    if landmark_points:  # If facial landmarks are detected
+        landmarks = landmark_points[0].landmark
+        
+        # Extract landmarks for the right eye
+        right = [landmarks[374], landmarks[386]]
+        for landmark in right:
+            x = int(landmark.x * frame_w)
+            y = int(landmark.y * frame_h)
+            cv2.circle(frame, (x, y), 3, (0, 255, 255))  # Draw circles around right eye landmarks
+        
+        # Check if the user is tilting head forward
+        if (right[0].y - right[1].y) < 0.013:
+            move_forward()  # Move the robot forward
+            time.sleep(0.5)  # Move for 1 second
+            stop()  # Stop the robot
+        
+        # Extract landmarks for the left eye
+        left = [landmarks[145], landmarks[159]]
+        for landmark in left:
+            x = int(landmark.x * frame_w)
+            y = int(landmark.y * frame_h)
+            cv2.circle(frame, (x, y), 3, (0, 255, 255))  # Draw circles around left eye landmarks
+        
+        # Check if the user is tilting head right
+        if (left[0].y - left[1].y) < 0.013:
+            turn_right()  # Turn the robot right
+            time.sleep(0.5)  # Turn for 1 second
+            stop()  # Stop the robot
+        
+        # Check if both forward and right tilt detected to stop the robot
+        if (left[0].y - left[1].y) < 0.013 and (right[0].y - right[1].y) < 0.013:
+            stop()  # Stop the robot
+    
+    # Display the frame with detected landmarks
+    cv2.imshow('eye controlled robot', frame)
+    cv2.waitKey(1000)  # Wait for 1000 milliseconds before next iteration
